@@ -10,28 +10,37 @@
 
 #include <avr/io.h>
 #include <util/delay.h>
+#include "leds.h"
 
 
 
 int main(void)
 {
-	// Configure pins as outputs
-	DDRD = (1<<PD5) | (1<<PD6);
-	DDRB = (1<<PB3);
-	
-	PORTB = 0;
-	PORTD = 0;
+	leds_init();
 			
     while(1)
     {
-		PORTB |= (1 << PB3);
+		leds_set_g_level(LEDS_MAX_LEVEL);
 		_delay_ms(5000);
-		PORTB &= ~(1 << PB3);		
-		PORTD |= (1 << PD5);
+		leds_set_g_level(LEDS_OFF_LEVEL);
+		leds_set_r_level(LEDS_MAX_LEVEL);
 		_delay_ms(5000);
-		PORTD &= ~(1 << PD5);
-		PORTD |= (1 << PD6);
+		leds_set_r_level(LEDS_OFF_LEVEL);
+		leds_set_b_level(LEDS_MAX_LEVEL);		
 		_delay_ms(5000);
-		PORTD &= ~(1 << PD6);		
+		leds_set_b_level(LEDS_OFF_LEVEL);
+		_delay_ms(5000);
+		
+				leds_set_g_level(LEDS_NIGHT_LEVEL);
+				_delay_ms(5000);
+				leds_set_g_level(LEDS_OFF_LEVEL);
+				leds_set_r_level(LEDS_NIGHT_LEVEL);
+				_delay_ms(5000);
+				leds_set_r_level(LEDS_OFF_LEVEL);
+				leds_set_b_level(LEDS_NIGHT_LEVEL);
+				_delay_ms(5000);
+				leds_set_b_level(LEDS_OFF_LEVEL);
+				_delay_ms(5000);
+		
     }
 }
