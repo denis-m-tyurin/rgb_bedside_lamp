@@ -1,0 +1,1 @@
+HSV to RGB: http://habrahabr.ru/post/166317/

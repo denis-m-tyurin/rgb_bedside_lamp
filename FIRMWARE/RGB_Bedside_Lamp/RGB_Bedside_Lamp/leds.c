@@ -6,11 +6,6 @@
    RED: PD6 - OC0A
    GREEN: PB3 - OC2A */
 
-// local variables
-static uint8_t r_off = 1;
-static uint8_t g_off = 1;
-static uint8_t b_off = 1;
-
 void leds_init()
 {
 	// Configure pins
@@ -31,59 +26,57 @@ void leds_init()
 	TCCR2B |= (1 << CS20);
 }
 
-void leds_set_r_level(int level)
+void leds_set_rgb(uint8_t r, uint8_t g, uint8_t b)
 {
-	if (LEDS_OFF_LEVEL == level)
+	// Set BLUE
+	if (LEDS_OFF_LEVEL == b)
 	{
 		//	disable output for this pin
-		TCCR0A &= ~(1 << COM0B1);
-		r_off = 1;
-	} 
-	else 
-	{
-		OCR0B = level;	
-		if (1 == r_off)
-		{
-			TCCR0A |= (1 << COM0B1);
-			r_off = 0;
-		}
-	}	
-}
-
-void leds_set_g_level(int level)
-{
-	if (LEDS_OFF_LEVEL == level)
-	{
-		//	disable output for this pin
-		TCCR2A &= ~(1 << COM2A1);
-		g_off = 1;
+		TCCR0A &= ~(1 << COM0B1);		
 	}
 	else
 	{
-		OCR2A = level;
-		if (1 == g_off)
+		OCR0B = b;
+		
+		// Enable this pin if necessary
+		if (0 == (TCCR0A & (1 << COM0B1)))
 		{
-			TCCR2A |= (1 << COM2A1);
-			g_off = 0;
+			TCCR0A |= (1 << COM0B1);		
 		}
 	}
-}
-
-void leds_set_b_level(int level)
-{
-	if (LEDS_OFF_LEVEL == level)
+	
+	// Set RED
+	if (LEDS_OFF_LEVEL == r)
 	{
 		//	disable output for this pin
 		TCCR0A &= ~(1 << COM0A1);
-		b_off = 1;
 	}
 	else
 	{
-		OCR0A = level;
-		if (1 == b_off)
+		OCR0A = r;
+		
+		// Enable this pin if necessary
+		if (0 == (TCCR0A & (1 << COM0A1)))
 		{
 			TCCR0A |= (1 << COM0A1);
-			b_off = 0;
+		}
+	}
+	
+	// Set GREEN
+	if (LEDS_OFF_LEVEL == g)
+	{
+		//	disable output for this pin
+		TCCR2A &= ~(1 << COM2A1);
+	}
+	else
+	{
+		OCR2A = g;
+		
+		// Enable this pin if necessary
+		if (0 == (TCCR2A & (1 << COM2A1)))
+		{
+			TCCR2A |= (1 << COM2A1);
 		}
 	}
 }
+
