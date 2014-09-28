@@ -93,12 +93,6 @@
     </ToolchainSettings>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="leds.c">
-      <SubType>compile</SubType>
-    </Compile>
-    <Compile Include="leds.h">
-      <SubType>compile</SubType>
-    </Compile>
     <Compile Include="RGB_Bedside_Lamp.c">
       <SubType>compile</SubType>
     </Compile>
