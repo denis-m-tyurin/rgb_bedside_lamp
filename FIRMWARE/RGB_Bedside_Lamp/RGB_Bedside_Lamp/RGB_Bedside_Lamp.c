@@ -33,9 +33,17 @@
 #define GREEN_LED_ON PORTB |= (1 << PB3)
 #define GREEN_LED_OFF PORTB &= ~(1 << PB3)
 
+#define FLICKERING_MODE_OFF 0
+#define FLICKERING_MODE_ON 1
+
+#define FLICKERING_DELTA 50
+
 // EEPROM ADDRESS LIST
 #define EEPROM_LEVEL_ADDR 2
 #define EEPROM_SRAND_ADDR 4
+#define EEPROM_FLICKERING_MODE_ADDR 6
+
+
 
 struct RGB
 {
@@ -45,12 +53,16 @@ struct RGB
 };
 
 static volatile uint8_t mode_switch = 0;
+static volatile uint8_t flickering_mode = FLICKERING_MODE_OFF;
+
+static uint8_t prev_flickering_mode = FLICKERING_MODE_OFF;
 
 // Make the following vars global to reduce stack usage in nested loops
 static struct RGB color = {0, 0, 0};
 static uint16_t base_hue;
 static uint16_t hue;
 static volatile uint16_t level = PWM_TOP;
+static uint16_t flickering_level = 0;
 static volatile uint8_t level_changed = 0;
 static uint16_t pwm_cycles;
 static uint16_t pwm_counter;
@@ -83,17 +95,24 @@ int main(void)
 	level = eeprom_read_word((void *)EEPROM_LEVEL_ADDR);
 	if (level > PWM_TOP) level = PWM_TOP;
 	
+	flickering_mode = eeprom_read_byte((void*)EEPROM_FLICKERING_MODE_ADDR);
+	if (flickering_mode != FLICKERING_MODE_OFF && flickering_mode != FLICKERING_MODE_ON) 
+	{
+		flickering_mode = FLICKERING_MODE_OFF;
+	}
+	prev_flickering_mode = flickering_mode;
+
+	// Seed a pseudo rand value to Rand
+	init_rand();
+	
 	generate_BaseHue();
 	hue = base_hue;	
 	
-	// Seed a pseudo rand value to Rand
-	init_rand();
-
 	// Configure interrupts for buttons	
-	// PD2 (INT0) - Mode switch 
-	PORTD |= (1 << PD2) | (1 << PD1) | (1 << PD0); // Enable internal pull-ups for these PINs
-	EICRA |= (1 << ISC01); // INT0 - falling edge generates INT
-	EIMSK |= (1 << INT0);
+	// PD2 (INT0) - Mode switch PD3 (INT1) - Flickering mode on/off
+	PORTD |= (1 << PD3) | (1 << PD2) | (1 << PD1) | (1 << PD0); // Enable internal pull-ups for these PINs
+	EICRA |= (1 << ISC01) | (1 << ISC11); // INT0, INT1 - falling edge generates INT
+	EIMSK |= (1 << INT0) | (1 << INT1);
 	
 	// PD1 (PCINT17) - level down
 	// PD0 (PCINT16) - level up
@@ -124,7 +143,17 @@ int main(void)
 				if (1 == mode_switch) break;
 				
 				// This function will change the color global variable to reduce stack usage
-				HSV2RGB_Adv1(hue, level);
+				// Use flickering level if enabled
+				if (FLICKERING_MODE_ON == flickering_mode)
+				{
+					flickering_level = (rand() % FLICKERING_DELTA) + (level > PWM_TOP - FLICKERING_DELTA ? PWM_TOP - FLICKERING_DELTA : level);	
+					HSV2RGB_Adv1(hue, flickering_level);
+				} 
+				else
+				{
+					HSV2RGB_Adv1(hue, level);	
+				}
+				
 				PWM_Cycle();
 				
 				if (hue < base_hue) hue ++;
@@ -133,9 +162,19 @@ int main(void)
 			
 			if (1 == level_changed)
 			{
+				cli();
 				// Save new level value to EEPROM
 				eeprom_write_word((void *) EEPROM_LEVEL_ADDR, level);
 				level_changed = 0;
+				sei();
+			}
+			
+			if (prev_flickering_mode != flickering_mode)
+			{
+				cli();
+				eeprom_write_byte((void*)EEPROM_FLICKERING_MODE_ADDR, flickering_mode);
+				prev_flickering_mode = flickering_mode;
+				sei();
 			}
 		}
 		
@@ -286,6 +325,11 @@ inline static void HSV2RGB_Adv1 (uint16_t hue, uint16_t val)
 ISR(INT0_vect)
 {
 	mode_switch = 1;
+}
+
+ISR(INT1_vect)
+{
+	flickering_mode = (flickering_mode == FLICKERING_MODE_OFF ? FLICKERING_MODE_ON : FLICKERING_MODE_OFF);
 }
 
 ISR(PCINT2_vect)
