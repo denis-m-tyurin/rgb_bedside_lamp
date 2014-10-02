@@ -14,8 +14,11 @@
 #include <avr/interrupt.h>
 #include <avr/eeprom.h>
 
+// Change the following 3 values simultaneously
 #define PWM_TOP 1000
-#define HUE_TOP PWM_TOP*6
+#define HUE_TOP 6000
+#define HUE_HALF_DISTANCE 3000
+
 #define PWM_NIGHT_MODE_REPEAT_CYCLES 50
 #define PWM_TRANSITION_MODE_REPEAT_CYCLES 1
 #define LEVEL_STEP 5
@@ -69,11 +72,13 @@ static uint16_t pwm_counter;
 static uint16_t iiii = 0;
 static uint8_t hue_cycles_back_count = HUE_CYCLES_BACK_FORTH_COUNT_CYCLES;
 static uint8_t hue_cycles_forth_count = HUE_CYCLES_BACK_FORTH_COUNT_CYCLES;
+static uint16_t hue_calc_buffer = 0;
 
 inline static void HSV2RGB_Adv1 (uint16_t hue, uint16_t val);
 inline static void PWM_Cycle();
 inline static void generate_BaseHue();
 inline static void init_rand();
+inline static void step_to_next_hue();
 
 int main(void)
 {
@@ -156,8 +161,7 @@ int main(void)
 				
 				PWM_Cycle();
 				
-				if (hue < base_hue) hue ++;
-				if (hue > base_hue) hue--;
+				step_to_next_hue();
 			}
 			
 			if (1 == level_changed)
@@ -232,6 +236,61 @@ inline static void init_rand()
 	eeprom_write_word((void*)EEPROM_SRAND_ADDR, rand());
 }
 
+inline static void step_to_next_hue()
+{
+	if (hue < base_hue)
+	{
+		if ((base_hue - hue) > HUE_HALF_DISTANCE)
+		{
+			if (0 == hue) 
+			{
+				hue = HUE_TOP;
+			} 
+			else
+			{
+				hue--;		
+			}			
+		}
+		else
+		{
+			if (HUE_TOP == hue)
+			{
+				hue = 0;
+			}
+			else
+			{
+				hue++;
+			}
+		}
+		
+	}
+	else if (hue > base_hue)
+	{
+		if ((hue - base_hue) > HUE_HALF_DISTANCE)
+		{
+			if (HUE_TOP == hue)
+			{
+				hue = 0;
+			}
+			else
+			{
+				hue++;
+			}
+		}
+		else
+		{
+			if (0 == hue)
+			{
+				hue = HUE_TOP;
+			}
+			else
+			{
+				hue--;
+			}
+		}
+	}	
+}
+
 inline static void PWM_Cycle()
 {
 		for (pwm_cycles = 0; pwm_cycles < PWM_NIGHT_MODE_REPEAT_CYCLES; pwm_cycles++)
@@ -265,14 +324,19 @@ inline static void generate_BaseHue()
 		{
 			// When will back at first we just need subtract the offset value. 
 			// In all other cases would need to subtract both of them
-			base_hue = (base_hue > HUE_CYCLES_BACK_OFFSET ? base_hue - (hue_cycles_back_count==0 ? HUE_CYCLES_BACK_OFFSET : (HUE_CYCLES_BACK_OFFSET + HUE_CYCLES_FORTH_OFFSET)) : 0);			
+			hue_calc_buffer = (hue_cycles_back_count==0 ? HUE_CYCLES_BACK_OFFSET : (HUE_CYCLES_BACK_OFFSET + HUE_CYCLES_FORTH_OFFSET));
+			
+			base_hue = (base_hue > hue_calc_buffer ? base_hue - hue_calc_buffer : PWM_TOP - (hue_calc_buffer - base_hue));			
 			hue_cycles_back_count++;
 		} 
 		else
 		{
 			// Before we come here we went back, thus now we need to add both offsets
 			base_hue = base_hue + HUE_CYCLES_BACK_OFFSET + HUE_CYCLES_FORTH_OFFSET;
-			if (base_hue > HUE_TOP) base_hue = HUE_TOP;
+			if (base_hue > HUE_TOP)
+			{
+				base_hue = base_hue - HUE_TOP;
+			}
 			
 			hue_cycles_forth_count++;			
 		}
