@@ -21,7 +21,14 @@
 
 #define PWM_NIGHT_MODE_REPEAT_CYCLES 50
 #define PWM_TRANSITION_MODE_REPEAT_CYCLES 1
-#define LEVEL_STEP 5
+
+#define LEVEL_VERY_FAST_STEP 100 
+#define LEVEL_VERY_FAST_BOUND 100
+
+#define LEVEL_FAST_STEP 30
+#define LEVEL_FAST_BOUND 20
+
+#define LEVEL_SLOW_STEP 1
 
 #define HUE_CYCLES_BACK_OFFSET 300
 #define HUE_CYCLES_FORTH_OFFSET 300
@@ -36,17 +43,9 @@
 #define GREEN_LED_ON PORTB |= (1 << PB3)
 #define GREEN_LED_OFF PORTB &= ~(1 << PB3)
 
-#define FLICKERING_MODE_OFF 0
-#define FLICKERING_MODE_ON 1
-
-#define FLICKERING_DELTA 50
-
 // EEPROM ADDRESS LIST
 #define EEPROM_LEVEL_ADDR 2
 #define EEPROM_SRAND_ADDR 4
-#define EEPROM_FLICKERING_MODE_ADDR 6
-
-
 
 struct RGB
 {
@@ -56,17 +55,15 @@ struct RGB
 };
 
 static volatile uint8_t mode_switch = 0;
-static volatile uint8_t flickering_mode = FLICKERING_MODE_OFF;
-
-static uint8_t prev_flickering_mode = FLICKERING_MODE_OFF;
 
 // Make the following vars global to reduce stack usage in nested loops
 static struct RGB color = {0, 0, 0};
 static uint16_t base_hue;
 static uint16_t hue;
 static volatile uint16_t level = PWM_TOP;
-static uint16_t flickering_level = 0;
 static volatile uint8_t level_changed = 0;
+static volatile uint8_t level_debounce = 0;
+
 static uint16_t pwm_cycles;
 static uint16_t pwm_counter;
 static uint16_t iiii = 0;
@@ -100,13 +97,6 @@ int main(void)
 	level = eeprom_read_word((void *)EEPROM_LEVEL_ADDR);
 	if (level > PWM_TOP) level = PWM_TOP;
 	
-	flickering_mode = eeprom_read_byte((void*)EEPROM_FLICKERING_MODE_ADDR);
-	if (flickering_mode != FLICKERING_MODE_OFF && flickering_mode != FLICKERING_MODE_ON) 
-	{
-		flickering_mode = FLICKERING_MODE_OFF;
-	}
-	prev_flickering_mode = flickering_mode;
-
 	// Seed a pseudo rand value to Rand
 	init_rand();
 	
@@ -114,10 +104,10 @@ int main(void)
 	hue = base_hue;	
 	
 	// Configure interrupts for buttons	
-	// PD2 (INT0) - Mode switch PD3 (INT1) - Flickering mode on/off
-	PORTD |= (1 << PD3) | (1 << PD2) | (1 << PD1) | (1 << PD0); // Enable internal pull-ups for these PINs
-	EICRA |= (1 << ISC01) | (1 << ISC11); // INT0, INT1 - falling edge generates INT
-	EIMSK |= (1 << INT0) | (1 << INT1);
+	// PD2 (INT0) - Mode switch 
+	PORTD |= (1 << PD2) | (1 << PD1) | (1 << PD0); // Enable internal pull-ups for these PINs
+	EICRA |= (1 << ISC01); // INT0 - falling edge generates INT
+	EIMSK |= (1 << INT0);
 	
 	// PD1 (PCINT17) - level down
 	// PD0 (PCINT16) - level up
@@ -140,28 +130,18 @@ int main(void)
 		for (;mode_switch != 1;)
 		{
 			if (1 == mode_switch) break;
-			
+
  			generate_BaseHue();
-			
+
 			for (; hue != base_hue; )
 			{
 				if (1 == mode_switch) break;
-				
-				// This function will change the color global variable to reduce stack usage
-				// Use flickering level if enabled
-				if (FLICKERING_MODE_ON == flickering_mode)
-				{
-					flickering_level = (rand() % FLICKERING_DELTA) + (level > PWM_TOP - FLICKERING_DELTA ? PWM_TOP - FLICKERING_DELTA : level);	
-					HSV2RGB_Adv1(hue, flickering_level);
-				} 
-				else
-				{
-					HSV2RGB_Adv1(hue, level);	
-				}
-				
+
+				HSV2RGB_Adv1(hue, level);
 				PWM_Cycle();
-				
+
 				step_to_next_hue();
+				level_debounce = 0;
 			}
 			
 			if (1 == level_changed)
@@ -171,15 +151,7 @@ int main(void)
 				eeprom_write_word((void *) EEPROM_LEVEL_ADDR, level);
 				level_changed = 0;
 				sei();
-			}
-			
-			if (prev_flickering_mode != flickering_mode)
-			{
-				cli();
-				eeprom_write_byte((void*)EEPROM_FLICKERING_MODE_ADDR, flickering_mode);
-				prev_flickering_mode = flickering_mode;
-				sei();
-			}
+			}			
 		}
 		
 		// This should never happen, but make the level compliant to PWM TOP
@@ -238,57 +210,24 @@ inline static void init_rand()
 
 inline static void step_to_next_hue()
 {
-	if (hue < base_hue)
+	
+	if (abs(hue - base_hue) < HUE_HALF_DISTANCE)
 	{
-		if ((base_hue - hue) > HUE_HALF_DISTANCE)
+		// Going in normal way (no jump over 0-HUE_TOP)
+		hue = (hue < base_hue ? hue + 1 : hue-1);
+	} 
+	else
+	{
+		// Going in backward direction, handle jumping over 0-HUE_TOP
+		if (hue < base_hue)
 		{
-			if (0 == hue) 
-			{
-				hue = HUE_TOP;
-			} 
-			else
-			{
-				hue--;		
-			}			
+			hue = (hue == 0 ? HUE_TOP : hue-1);	
 		}
 		else
 		{
-			if (HUE_TOP == hue)
-			{
-				hue = 0;
-			}
-			else
-			{
-				hue++;
-			}
-		}
-		
+			hue = (hue == HUE_TOP ? 0 : hue+1);	
+		}		
 	}
-	else if (hue > base_hue)
-	{
-		if ((hue - base_hue) > HUE_HALF_DISTANCE)
-		{
-			if (HUE_TOP == hue)
-			{
-				hue = 0;
-			}
-			else
-			{
-				hue++;
-			}
-		}
-		else
-		{
-			if (0 == hue)
-			{
-				hue = HUE_TOP;
-			}
-			else
-			{
-				hue--;
-			}
-		}
-	}	
 }
 
 inline static void PWM_Cycle()
@@ -391,33 +330,29 @@ ISR(INT0_vect)
 	mode_switch = 1;
 }
 
-ISR(INT1_vect)
-{
-	flickering_mode = (flickering_mode == FLICKERING_MODE_OFF ? FLICKERING_MODE_ON : FLICKERING_MODE_OFF);
-}
-
 ISR(PCINT2_vect)
 {
 	// Check what PIN is low and update level accordingly
-		
+	if (1==level_debounce)
+	{
+		return;
+	}
+
 	if ((1 << PD1) == (PIND & (1 << PD1)))
 	{
 		// level down
-		if (level >= LEVEL_STEP)
-		{
-			level = level - LEVEL_STEP;
-			level_changed = 1;
-		}
+		level = (level > LEVEL_VERY_FAST_BOUND ? level - LEVEL_VERY_FAST_STEP : (level > LEVEL_FAST_BOUND ? level - LEVEL_FAST_STEP : (level == 1 ? 1 : level - LEVEL_SLOW_STEP)));
+		level_changed = 1;
+		level_debounce = 1;		
 	}
 	
 	if ((1 << PD0) == (PIND & (1 << PD0)))
 	{
 		// level up
-		if (level <= (PWM_TOP - LEVEL_STEP))
-		{
-			level = level + LEVEL_STEP;
-			level_changed = 1;
-		}
+		level = (level < LEVEL_FAST_BOUND ? level+LEVEL_SLOW_STEP : (level < LEVEL_VERY_FAST_BOUND ? level+LEVEL_FAST_STEP : (level >= PWM_TOP ? PWM_TOP : level+LEVEL_VERY_FAST_STEP)));
+				
+		level_changed = 1;		
+		level_debounce = 1;
 	}
 
 }
